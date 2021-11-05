@@ -18,6 +18,35 @@
 
 #include <algorithm>
 
+namespace {
+
+class PeriodicWarningLogger {
+public:
+  PeriodicWarningLogger(const std::string message, const int period) {
+    message_ = message;
+    period_ = period;
+  }
+
+  void CountAndWarn() {
+    count_++;
+    if (period_ < count_) {
+      ROS_WARN(message_.c_str());
+      count_ = 0;
+    }
+  }
+
+  void CountReset() {
+    count_ = 0;
+  }
+
+private:
+  int count_;
+  int period_;
+  std::string message_;
+};
+
+}
+
 namespace lane_planner
 {
 // Constructor
@@ -79,11 +108,13 @@ void LaneSelectNode::initForROS()
 
 bool LaneSelectNode::isAllTopicsSubscribed()
 {
+  static PeriodicWarningLogger logger("[LaneSelectNode] Necessary topics are not subscribed yet. Waiting...", 100);
   if (!is_current_pose_subscribed_ || !is_lane_array_subscribed_ || !is_current_velocity_subscribed_)
   {
-    ROS_WARN("Necessary topics are not subscribed yet. Waiting...");
+    logger.CountAndWarn();
     return false;
   }
+  logger.CountReset();
   return true;
 }
 
@@ -218,13 +249,15 @@ void LaneSelectNode::createLaneForChange()
   const autoware_msgs::Lane &cur_lane = std::get<0>(tuple_vec_.at(current_lane_idx_));
   const int32_t &clst_wp = std::get<1>(tuple_vec_.at(current_lane_idx_));
 
+  static PeriodicWarningLogger logger("[LaneSelectNode] current lane doesn't have change flag", 100);
   int32_t num_lane_change = getClosestLaneChangeWaypointNumber(cur_lane.waypoints, clst_wp);
   ROS_INFO("num_lane_change: %d", num_lane_change);
   if (num_lane_change < 0 || num_lane_change >= static_cast<int32_t>(cur_lane.waypoints.size()))
   {
-    ROS_WARN("current lane doesn't have change flag");
+    logger.CountAndWarn();
     return;
   }
+  logger.CountReset();
 
   if ((static_cast<ChangeFlag>(cur_lane.waypoints.at(num_lane_change).change_flag) == ChangeFlag::right &&
        right_lane_idx_ < 0) ||

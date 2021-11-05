@@ -17,6 +17,35 @@
 #include <vector>
 #include <pure_pursuit/pure_pursuit_core.h>
 
+namespace {
+
+class PeriodicWarningLogger {
+public:
+  PeriodicWarningLogger(const std::string message, const int period) {
+    message_ = message;
+    period_ = period;
+  }
+
+  void CountAndWarn() {
+    count_++;
+    if (period_ < count_) {
+      ROS_WARN(message_.c_str());
+      count_ = 0;
+    }
+  }
+
+  void CountReset() {
+    count_ = 0;
+  }
+
+private:
+  int count_;
+  int period_;
+  std::string message_;
+};
+
+}
+
 namespace waypoint_follower
 {
 // Constructor
@@ -99,12 +128,14 @@ void PurePursuitNode::run()
   while (ros::ok())
   {
     ros::spinOnce();
+    static PeriodicWarningLogger logger("[PurePursuit] Necessary topics are not subscribed yet ... ", 100);
     if (!is_pose_set_ || !is_waypoint_set_ || !is_velocity_set_)
     {
-      ROS_WARN("Necessary topics are not subscribed yet ... ");
+      logger.CountAndWarn();
       loop_rate.sleep();
       continue;
     }
+    logger.CountReset();
 
     pp_.setLookaheadDistance(computeLookaheadDistance());
     pp_.setMinimumLookaheadDistance(minimum_lookahead_distance_);
