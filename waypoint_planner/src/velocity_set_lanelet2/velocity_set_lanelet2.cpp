@@ -538,7 +538,7 @@ EControl obstacleDetection(int closest_waypoint, int detection_waypoint, const a
 {
   ObstaclePoints obstacle_points;
 
-  EControl detection_result = pointsDetection(vs_info.getPoints(), closest_waypoint, detection_waypoint, lane,
+  EControl detection_result = pointsDetection(vs_info.getPointsInLocalizer(), closest_waypoint, detection_waypoint, lane,
                                               closest_crosswalks,  // crosswalk,
                                               vs_info, obstacle_waypoint, &obstacle_points);
 

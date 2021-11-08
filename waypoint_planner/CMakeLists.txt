@@ -22,6 +22,9 @@ find_package(
     vector_map
 )
 
+find_package(Eigen3 QUIET)
+find_package(glog REQUIRED)
+
 catkin_package()
 
 # TODO add all codes to roslint
@@ -30,6 +33,7 @@ roslint_cpp(src/velocity_set_lanelet2/velocity_set_lanelet2.cpp)
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIR}
 )
 
 add_executable(
@@ -58,6 +62,7 @@ add_executable(
 
 target_link_libraries(
   velocity_set
+  glog::glog
   ${catkin_LIBRARIES}
 )
 
@@ -76,6 +81,7 @@ add_executable(
 
 target_link_libraries(
   velocity_set_lanelet2
+  glog::glog
   ${catkin_LIBRARIES}
 )
 

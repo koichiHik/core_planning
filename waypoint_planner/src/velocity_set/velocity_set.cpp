@@ -244,9 +244,39 @@ EControl crossWalkDetection(const pcl::PointCloud<pcl::PointXYZ>& points, const 
   return EControl::KEEP;  // find no obstacles
 }
 
-int detectStopObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const int closest_waypoint,
+geometry_msgs::Point convertPointFromBaseToMap(const geometry_msgs::Pose &pose_in_map, const pcl::PointXYZ &p) {
+  tf::Transform transform;
+  tf::poseMsgToTF(pose_in_map, transform);
+
+  tf::Point p_in_base;
+  p_in_base.setX(p.x);
+  p_in_base.setY(p.y);
+  p_in_base.setZ(p.z);
+  tf::Point p_in_map = transform * p_in_base;
+
+  geometry_msgs::Point point_msg;
+  tf::pointTFToMsg(p_in_map, point_msg);
+  return point_msg;
+}
+
+bool pointIsInWaypointBox(const geometry_msgs::Point& p_in_map, const geometry_msgs::Pose &wp_pose, 
+                          const double x_margin, const double y_margin) {
+
+  // X. Seen by waypoint.
+  geometry_msgs::Point p_in_wp = calcRelativeCoordinate(p_in_map, wp_pose);
+
+  if (-x_margin < p_in_wp.x && p_in_wp.x < x_margin && 
+      -y_margin < p_in_wp.y && p_in_wp.y < y_margin ) {
+    return true;
+  }
+  return false;
+}
+
+int detectStopObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const pcl::PointCloud<pcl::PointXYZ>& base_points, 
+                       const int closest_waypoint,
                        const autoware_msgs::Lane& lane, const CrossWalk& crosswalk, double stop_range,
-                       double points_threshold, const geometry_msgs::PoseStamped& localizer_pose,
+                       double points_threshold, const geometry_msgs::PoseStamped& control_pose, 
+                       const geometry_msgs::PoseStamped& localizer_pose, double wp_stop_x_thresh, double wp_stop_y_thresh, 
                        ObstaclePoints* obstacle_points, EObstacleType* obstacle_type,
                        const int wpidx_detection_result_by_other_nodes)
 {
@@ -287,20 +317,24 @@ int detectStopObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const int c
     tf_waypoint.setZ(0);
 
     int stop_point_count = 0;
-    for (const auto& p : points)
+    for (size_t idx = 0; idx < points.size(); idx++) 
     {
+      const pcl::PointXYZ& p = points[idx];
       tf::Vector3 point_vector(p.x, p.y, 0);
 
       // 2D distance between waypoint and points (obstacle)
       double dt = tf::tfDistance(point_vector, tf_waypoint);
       if (dt < stop_range)
       {
-        stop_point_count++;
-        geometry_msgs::Point point_temp;
-        point_temp.x = p.x;
-        point_temp.y = p.y;
-        point_temp.z = p.z;
-        obstacle_points->setStopPoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+        geometry_msgs::Point p_in_map = convertPointFromBaseToMap(control_pose.pose, base_points[idx]);
+        if (pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_stop_x_thresh, wp_stop_y_thresh)) {
+          stop_point_count++;
+          geometry_msgs::Point point_temp;
+          point_temp.x = p.x;
+          point_temp.y = p.y;
+          point_temp.z = p.z;
+          obstacle_points->setStopPoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+        }
       }
     }
 
@@ -320,9 +354,12 @@ int detectStopObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const int c
   return stop_obstacle_waypoint;
 }
 
-int detectDecelerateObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const int closest_waypoint,
+int detectDecelerateObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const pcl::PointCloud<pcl::PointXYZ>& base_points, 
+                             const int closest_waypoint,
                              const autoware_msgs::Lane& lane, const double stop_range, const double deceleration_range,
-                             const double points_threshold, const geometry_msgs::PoseStamped& localizer_pose,
+                             const double points_threshold, const geometry_msgs::PoseStamped& control_pose, 
+                             const geometry_msgs::PoseStamped& localizer_pose, double wp_stop_x_thresh, double wp_stop_y_thresh, 
+                             double wp_decel_x_thresh, double wp_decel_y_thresh,
                              ObstaclePoints* obstacle_points)
 {
   int decelerate_obstacle_waypoint = -1;
@@ -339,20 +376,25 @@ int detectDecelerateObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const
     tf_waypoint.setZ(0);
 
     int decelerate_point_count = 0;
-    for (const auto& p : points)
+    for (size_t idx = 0; idx < points.size(); idx++) 
     {
+      const pcl::PointXYZ &p = points[idx];
       tf::Vector3 point_vector(p.x, p.y, 0);
 
       // 2D distance between waypoint and points (obstacle)
       double dt = tf::tfDistance(point_vector, tf_waypoint);
-      if (dt > stop_range && dt < stop_range + deceleration_range)
+      if (dt < stop_range + deceleration_range)
       {
-        decelerate_point_count++;
-        geometry_msgs::Point point_temp;
-        point_temp.x = p.x;
-        point_temp.y = p.y;
-        point_temp.z = p.z;
-        obstacle_points->setDeceleratePoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+        geometry_msgs::Point p_in_map = convertPointFromBaseToMap(control_pose.pose, base_points[idx]);
+        if (!pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_stop_x_thresh, wp_stop_y_thresh) &&
+             pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_decel_x_thresh, wp_decel_y_thresh)) {
+          decelerate_point_count++;
+          geometry_msgs::Point point_temp;
+          point_temp.x = p.x;
+          point_temp.y = p.y;
+          point_temp.z = p.z;
+          obstacle_points->setDeceleratePoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+        }
       }
     }
 
@@ -372,7 +414,7 @@ int detectDecelerateObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const
 }
 
 // Detect an obstacle by using pointcloud
-EControl pointsDetection(const pcl::PointCloud<pcl::PointXYZ>& points, const int closest_waypoint,
+EControl pointsDetection(const pcl::PointCloud<pcl::PointXYZ>& points, const pcl::PointCloud<pcl::PointXYZ>& points_base, const int closest_waypoint,
                          const autoware_msgs::Lane& lane, const CrossWalk& crosswalk, const VelocitySetInfo& vs_info,
                          int* obstacle_waypoint, ObstaclePoints* obstacle_points)
 {
@@ -382,8 +424,9 @@ EControl pointsDetection(const pcl::PointCloud<pcl::PointXYZ>& points, const int
 
   EObstacleType obstacle_type = EObstacleType::NONE;
   int stop_obstacle_waypoint =
-      detectStopObstacle(points, closest_waypoint, lane, crosswalk, vs_info.getStopRange(),
-                         vs_info.getPointsThreshold(), vs_info.getLocalizerPose(),
+      detectStopObstacle(points, points_base, closest_waypoint, lane, crosswalk, vs_info.getStopRange(),
+                         vs_info.getPointsThreshold(), vs_info.getControlPose(), vs_info.getLocalizerPose(),
+                         vs_info.getWpStopXThresh(), vs_info.getWpStopYThresh(),
                          obstacle_points, &obstacle_type, vs_info.getDetectionResultByOtherNodes());
 
   // skip searching deceleration range
@@ -401,8 +444,10 @@ EControl pointsDetection(const pcl::PointCloud<pcl::PointXYZ>& points, const int
   }
 
   int decelerate_obstacle_waypoint =
-      detectDecelerateObstacle(points, closest_waypoint, lane, vs_info.getStopRange(), vs_info.getDecelerationRange(),
-                               vs_info.getPointsThreshold(), vs_info.getLocalizerPose(), obstacle_points);
+      detectDecelerateObstacle(points, points_base, closest_waypoint, lane, vs_info.getStopRange(), 
+                               vs_info.getDecelerationRange(), vs_info.getPointsThreshold(), vs_info.getControlPose(), 
+                               vs_info.getLocalizerPose(), vs_info.getWpStopXThresh(), vs_info.getWpStopYThresh(),
+                               vs_info.getWpDecelXThresh(), vs_info.getWpDecelYThresh(), obstacle_points);
 
   // stop obstacle was not found
   if (stop_obstacle_waypoint < 0)
@@ -441,7 +486,7 @@ EControl obstacleDetection(int closest_waypoint, const autoware_msgs::Lane& lane
                            const ros::Publisher& obstacle_pub, int* obstacle_waypoint)
 {
   ObstaclePoints obstacle_points;
-  EControl detection_result = pointsDetection(vs_info.getPoints(), closest_waypoint, lane, crosswalk, vs_info,
+  EControl detection_result = pointsDetection(vs_info.getPointsInLocalizer(), vs_info.getPointsInBaselink() ,closest_waypoint, lane, crosswalk, vs_info,
                                               obstacle_waypoint, &obstacle_points);
   displayDetectionRange(lane, crosswalk, closest_waypoint, detection_result, *obstacle_waypoint, vs_info.getStopRange(),
                         vs_info.getDecelerationRange(), detection_range_pub);

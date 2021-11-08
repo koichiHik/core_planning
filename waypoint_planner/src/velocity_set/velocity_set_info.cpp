@@ -16,6 +16,11 @@
 
 #include <waypoint_planner/velocity_set/velocity_set_info.h>
 
+#include <Eigen/Geometry>
+#include <pcl_ros/transforms.h>
+
+#include <glog/logging.h>
+
 void joinPoints(const pcl::PointCloud<pcl::PointXYZ>& points1, pcl::PointCloud<pcl::PointXYZ>* points2)
 {
   for (const auto& p : points1)
@@ -36,8 +41,16 @@ VelocitySetInfo::VelocitySetInfo()
     deceleration_stopline_(0.6),
     velocity_change_limit_(2.77),
     temporal_waypoints_size_(100),
+    wpidx_detectionResultByOtherNodes_(-1),
+    base_to_front_(0.0),
+    base_to_rear_(0.0),
+    base_to_left_(0.0),
+    base_to_right_(0.0),
+    tangent_value_(0.0),
+    publish_obstacle_pcl_(false),
     set_pose_(false),
-    wpidx_detectionResultByOtherNodes_(-1)
+    tf_lidar_to_baselink_(),
+    pcl_for_obstacle_pub_()
 {
   ros::NodeHandle private_nh_("~");
   ros::NodeHandle nh;
@@ -56,7 +69,46 @@ VelocitySetInfo::VelocitySetInfo()
   private_nh_.param<double>("deceleration_range", deceleration_range_, 0);
   private_nh_.param<double>("temporal_waypoints_size", temporal_waypoints_size_, 100.0);
 
+  // X. Parameter added later.
+  CHECK(private_nh_.getParam("base_to_front", base_to_front_)) << "Parameter base_to_front cannot be read.";
+  CHECK(private_nh_.getParam("base_to_rear", base_to_rear_)) << "Parameter base_to_rear cannot be read.";
+  CHECK(private_nh_.getParam("base_to_left", base_to_left_)) << "Parameter base_to_left cannot be read.";
+  CHECK(private_nh_.getParam("base_to_right", base_to_right_)) << "Parameter base_to_right cannot be read.";
+  double visible_angle_from_x_axis;
+  CHECK(private_nh_.getParam("visible_angle_from_x_axis", visible_angle_from_x_axis)) << "Parameter visible_angle_from_x_axis cannot be read.";
+  tangent_value_ = std::tan(std::abs(visible_angle_from_x_axis));
+  CHECK(private_nh_.getParam("publish_obstacle_pcl", publish_obstacle_pcl_)) << "Publish obstacle pcl cannot be read.";
+
+  CHECK(private_nh_.getParam("wp_stop_x_thresh", wp_stop_x_thresh_)) << "Parameter wp_stop_x_thresh_ cannot be read";
+  CHECK(private_nh_.getParam("wp_stop_y_thresh", wp_stop_y_thresh_)) << "Parameter wp_stop_y_thresh_ cannot be read";
+  CHECK(private_nh_.getParam("wp_decel_x_thresh", wp_decel_x_thresh_)) << "Parameter wp_decel_x_thresh_ cannot be read";
+  CHECK(private_nh_.getParam("wp_decel_y_thresh", wp_decel_y_thresh_)) << "Parameter wp_decel_y_thresh_ cannot be read";
+
+  // X. Load global paramers.
+  double tf_x, tf_y, tf_z;
+  double tf_roll, tf_pitch, tf_yaw;
+  CHECK(nh.getParam("tf_x", tf_x)) << "Parameter tf_x cannot be read.";
+  CHECK(nh.getParam("tf_y", tf_y)) << "Parameter tf_y cannot be read.";
+  CHECK(nh.getParam("tf_z", tf_z)) << "Parameter tf_z cannot be read.";
+  CHECK(nh.getParam("tf_roll", tf_roll)) << "Parameter tf_roll cannot be read.";
+  CHECK(nh.getParam("tf_pitch", tf_pitch)) << "Parameter tf_pitch cannot be read.";
+  CHECK(nh.getParam("tf_yaw", tf_yaw)) << "Parameter tf_yaw cannot be read.";
+
+  Eigen::Quaternionf rot_baselink_to_lidar = 
+    Eigen::AngleAxisf(tf_yaw, Eigen::Vector3f::UnitZ()) * 
+    Eigen::AngleAxisf(tf_pitch, Eigen::Vector3f::UnitY()) * 
+    Eigen::AngleAxisf(tf_roll, Eigen::Vector3f::UnitX());
+
+  tf_lidar_to_baselink_.setOrigin(tf::Vector3(tf_x, tf_y, tf_z));
+  tf_lidar_to_baselink_.setRotation(
+      tf::Quaternion(rot_baselink_to_lidar.x(), rot_baselink_to_lidar.y(), 
+                     rot_baselink_to_lidar.z(), rot_baselink_to_lidar.w()));
+
   velocity_change_limit_ = vel_change_limit_kph / 3.6;  // kph -> mps
+
+  if (publish_obstacle_pcl_) {
+    pcl_for_obstacle_pub_ = nh.advertise<sensor_msgs::PointCloud2>("pcl_for_obstacle", 1);
+  }
 
   health_checker_ptr_ = std::make_shared<autoware_health_checker::HealthChecker>(nh,private_nh_);
   health_checker_ptr_->ENABLE();
@@ -68,7 +120,8 @@ VelocitySetInfo::~VelocitySetInfo()
 
 void VelocitySetInfo::clearPoints()
 {
-  points_.clear();
+  points_in_baselink_.clear();
+  points_in_localizer_.clear();
 }
 
 void VelocitySetInfo::configCallback(const autoware_config_msgs::ConfigVelocitySetConstPtr &config)
@@ -92,22 +145,56 @@ void VelocitySetInfo::pointsCallback(const sensor_msgs::PointCloud2ConstPtr &msg
   pcl::PointCloud<pcl::PointXYZ> sub_points;
   pcl::fromROSMsg(*msg, sub_points);
 
-  points_.clear();
-  for (const auto &v : sub_points)
-  {
-    if (v.x == 0 && v.y == 0)
-      continue;
+  pcl::PointCloud<pcl::PointXYZ> sub_points_in_baselink;
+  sensor_msgs::PointCloud2 pcl_msg_in_baselink;
+  pcl_ros::transformPointCloud("base_link", tf_lidar_to_baselink_, *msg, pcl_msg_in_baselink);
+  pcl::fromROSMsg(pcl_msg_in_baselink, sub_points_in_baselink);
 
-    if (v.z > detection_height_top_ || v.z < detection_height_bottom_)
-      continue;
+  points_in_baselink_.clear();
+  points_in_localizer_.clear();
+  for (size_t idx = 0; idx < sub_points.size(); idx++) {
 
-    // ignore points nearby the vehicle
-    if (v.x * v.x + v.y * v.y < remove_points_upto_ * remove_points_upto_)
-      continue;
+    const pcl::PointXYZ &loc_p = sub_points[idx];
+    const pcl::PointXYZ &base_p = sub_points_in_baselink[idx];
+    bool valid = true;
 
-    points_.push_back(v);
+    if (loc_p.x == 0 && loc_p.y == 0) {
+      // X. Remove invalid.
+      valid = false;
+    } else if (loc_p.z > detection_height_top_ || loc_p.z < detection_height_bottom_) {
+      // X. Height condition.
+      valid = false;
+    } else if (-base_to_rear_ < base_p.x && base_p.x < base_to_front_ && 
+        -base_to_right_ < base_p.y && base_p.y < base_to_left_) {
+      // X. Remove inside robot.
+      valid = false;
+    } else if (base_p.x < base_to_front_) {
+      // X. Remove points from back.
+      valid = false;
+    } else if (tangent_value_ < std::abs(base_p.y / base_p.x)) {
+      // X. Apply 60deg line.
+      valid = false;
+    } else if (loc_p.x * loc_p.x + loc_p.y * loc_p.y < remove_points_upto_ * remove_points_upto_) {
+      valid = false;
+    }
+
+    if (valid) {
+      points_in_baselink_.push_back(base_p);
+      points_in_localizer_.push_back(loc_p);
+    } else {
+      sub_points[idx].x = std::numeric_limits<float>::quiet_NaN();
+      sub_points[idx].y = std::numeric_limits<float>::quiet_NaN();
+      sub_points[idx].z = std::numeric_limits<float>::quiet_NaN();
+    }
   }
 
+  // X. Publish for debug.
+  if (publish_obstacle_pcl_) {
+    sensor_msgs::PointCloud2 pcl_msg_obstacle;
+    pcl_msg_obstacle.header = msg->header;
+    pcl::toROSMsg(sub_points, pcl_msg_obstacle);
+    pcl_for_obstacle_pub_.publish(pcl_msg_obstacle);
+  }
 }
 
 void VelocitySetInfo::detectionCallback(const std_msgs::Int32 &msg)

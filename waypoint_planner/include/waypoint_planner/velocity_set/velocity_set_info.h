@@ -18,6 +18,7 @@
 #define VELOCITY_SET_INFO_H
 
 #include <ros/ros.h>
+#include <tf/tf.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <std_msgs/Int32.h>
@@ -44,13 +45,29 @@ class VelocitySetInfo
   double temporal_waypoints_size_;  // (meter)
   int  wpidx_detectionResultByOtherNodes_; // waypoints index@finalwaypoints
 
+  double base_to_front_;
+  double base_to_rear_;
+  double base_to_left_;
+  double base_to_right_;
+  double tangent_value_;
+  bool publish_obstacle_pcl_;
+
+  double wp_stop_x_thresh_;
+  double wp_stop_y_thresh_;
+  double wp_decel_x_thresh_;
+  double wp_decel_y_thresh_;
+
   // ROS param
   double remove_points_upto_;
 
-  pcl::PointCloud<pcl::PointXYZ> points_;
+  pcl::PointCloud<pcl::PointXYZ> points_in_localizer_, points_in_baselink_;
   geometry_msgs::PoseStamped localizer_pose_;  // pose of sensor
   geometry_msgs::PoseStamped control_pose_;    // pose of base_link
   bool set_pose_;
+
+  tf::Transform tf_lidar_to_baselink_;
+
+  ros::Publisher pcl_for_obstacle_pub_;
 
   std::shared_ptr<autoware_health_checker::HealthChecker> health_checker_ptr_;
 
@@ -66,7 +83,6 @@ class VelocitySetInfo
   void detectionCallback(const std_msgs::Int32 &msg);
 
   void clearPoints();
-
 
   int getDetectionResultByOtherNodes() const
   {
@@ -128,9 +144,14 @@ class VelocitySetInfo
     return temporal_waypoints_size_;
   }
 
-  pcl::PointCloud<pcl::PointXYZ> getPoints() const
+  pcl::PointCloud<pcl::PointXYZ> getPointsInBaselink() const 
   {
-    return points_;
+    return points_in_baselink_;
+  }
+
+  pcl::PointCloud<pcl::PointXYZ> getPointsInLocalizer() const
+  {
+    return points_in_localizer_;
   }
 
   geometry_msgs::PoseStamped getControlPose() const
@@ -147,6 +168,23 @@ class VelocitySetInfo
   {
     return set_pose_;
   }
+
+  double getWpStopXThresh() const {
+    return wp_stop_x_thresh_;
+  }
+
+  double getWpStopYThresh() const {
+    return wp_stop_y_thresh_;
+  }
+
+  double getWpDecelXThresh() const {
+    return wp_decel_x_thresh_;
+  }
+
+  double getWpDecelYThresh() const {
+    return wp_decel_y_thresh_;
+  }
+
 };
 
 #endif // VELOCITY_SET_INFO_H
