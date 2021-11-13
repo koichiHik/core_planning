@@ -60,6 +60,7 @@ private:
   ros::Subscriber closest_waypoint_sub_;
   ros::Subscriber obstacle_waypoint_sub_;
   ros::Subscriber state_sub_;
+  ros::Subscriber avoidance_request_sub_;
   ros::Rate *rate_;
   tf::TransformListener tf_listener_;
 
@@ -68,6 +69,8 @@ private:
   double update_rate_;          // publishing rate [Hz]
 
   bool enable_avoidance_;           // enable avoidance mode
+  bool enable_ontime_avoidance_;
+  bool onetime_avoidance_request_;
   double avoid_waypoints_velocity_; // constant velocity on planned waypoints [km/h]
   double avoid_start_velocity_;     // self velocity for staring avoidance behavior [km/h]
   double replan_interval_;          // replan interval for avoidance planning [Hz]
@@ -111,6 +114,7 @@ private:
   void baseWaypointsCallback(const autoware_msgs::Lane& msg);
   void closestWaypointCallback(const std_msgs::Int32& msg);
   void obstacleWaypointCallback(const std_msgs::Int32& msg);
+  void avoidanceRequestCallcallback(const std_msgs::Header& msg);
 
   // functions
   bool checkInitialized();

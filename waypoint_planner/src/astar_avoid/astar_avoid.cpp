@@ -28,11 +28,13 @@ AstarAvoid::AstarAvoid()
   , base_waypoints_initialized_(false)
   , closest_waypoint_initialized_(false)
   , terminate_thread_(false)
+  , onetime_avoidance_request_(false)
 {
   private_nh_.param<int>("safety_waypoints_size", safety_waypoints_size_, 100);
   private_nh_.param<double>("update_rate", update_rate_, 10.0);
 
   private_nh_.param<bool>("enable_avoidance", enable_avoidance_, false);
+  private_nh_.param<bool>("enable_ontime_avoidance", enable_ontime_avoidance_, false);
   private_nh_.param<double>("avoid_waypoints_velocity", avoid_waypoints_velocity_, 10.0);
   private_nh_.param<double>("avoid_start_velocity", avoid_start_velocity_, 5.0);
   private_nh_.param<double>("replan_interval", replan_interval_, 2.0);
@@ -47,6 +49,7 @@ AstarAvoid::AstarAvoid()
   base_waypoints_sub_ = nh_.subscribe("base_waypoints", 1, &AstarAvoid::baseWaypointsCallback, this);
   closest_waypoint_sub_ = nh_.subscribe("closest_waypoint", 1, &AstarAvoid::closestWaypointCallback, this);
   obstacle_waypoint_sub_ = nh_.subscribe("obstacle_waypoint", 1, &AstarAvoid::obstacleWaypointCallback, this);
+  avoidance_request_sub_ = nh_.subscribe("onetime_avoidance_request", 1, &AstarAvoid::avoidanceRequestCallcallback, this);
 
   rate_ = new ros::Rate(update_rate_);
 }
@@ -67,7 +70,7 @@ void AstarAvoid::currentPoseCallback(const geometry_msgs::PoseStamped& msg)
 {
   current_pose_global_ = msg;
 
-  if (!enable_avoidance_)
+  if (!enable_avoidance_ && !enable_ontime_avoidance_)
   {
     current_pose_initialized_ = true;
   }
@@ -129,6 +132,12 @@ void AstarAvoid::obstacleWaypointCallback(const std_msgs::Int32& msg)
   obstacle_waypoint_index_ = msg.data;
 }
 
+void AstarAvoid::avoidanceRequestCallcallback(const std_msgs::Header& msg)
+{
+  ROS_WARN("[AstarAvoid] Receive onetime rerouting request.");
+  onetime_avoidance_request_ = true;
+}
+
 void AstarAvoid::run()
 {
   // check topics
@@ -164,7 +173,7 @@ void AstarAvoid::run()
     ros::spinOnce();
 
     // relay mode
-    if (!enable_avoidance_)
+    if (!(enable_avoidance_ || (enable_ontime_avoidance_ && onetime_avoidance_request_)))
     {
       rate_->sleep();
       continue;
@@ -222,6 +231,7 @@ void AstarAvoid::run()
       if (reached)
       {
         ROS_INFO("AVOIDING -> RELAYING, Reached goal");
+        onetime_avoidance_request_ = false;
         state_ = AstarAvoid::STATE::RELAYING;
       }
       else if (found_obstacle && avoid_velocity)
@@ -250,7 +260,7 @@ bool AstarAvoid::checkInitialized()
                  (closest_waypoint_index_ >= 0));
 
   // check for avoidance mode, additionally
-  if (enable_avoidance_)
+  if (enable_avoidance_ || enable_ontime_avoidance_)
   {
     initialized = (initialized && (current_velocity_initialized_ && costmap_initialized_));
   }
