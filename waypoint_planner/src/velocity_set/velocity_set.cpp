@@ -482,7 +482,7 @@ EControl pointsDetection(const pcl::PointCloud<pcl::PointXYZ>& points, const pcl
 }
 
 EControl obstacleDetection(int closest_waypoint, const autoware_msgs::Lane& lane, const CrossWalk& crosswalk,
-                           const VelocitySetInfo vs_info, const ros::Publisher& detection_range_pub,
+                           const VelocitySetInfo& vs_info, const ros::Publisher& detection_range_pub,
                            const ros::Publisher& obstacle_pub, int* obstacle_waypoint)
 {
   ObstaclePoints obstacle_points;
@@ -597,6 +597,7 @@ int main(int argc, char** argv)
   // velocity set info subscriber
   ros::Subscriber config_sub = nh.subscribe("config/velocity_set", 1, &VelocitySetInfo::configCallback, &vs_info);
   ros::Subscriber points_sub = nh.subscribe(points_topic, 1, &VelocitySetInfo::pointsCallback, &vs_info);
+  ros::Subscriber second_points_sub = nh.subscribe("second_points",1, &VelocitySetInfo::secondPointsCallback, &vs_info);
   ros::Subscriber localizer_sub = nh.subscribe("localizer_pose", 1, &VelocitySetInfo::localizerPoseCallback, &vs_info);
   ros::Subscriber control_pose_sub = nh.subscribe("current_pose", 1, &VelocitySetInfo::controlPoseCallback, &vs_info);
   ros::Subscriber detectionresult_sub = nh.subscribe("/state/stopline_wpidx", 1, &VelocitySetInfo::detectionCallback, &vs_info);

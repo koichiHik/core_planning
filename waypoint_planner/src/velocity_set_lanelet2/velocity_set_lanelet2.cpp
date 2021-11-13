@@ -532,7 +532,7 @@ void displayDetectionRange(const autoware_msgs::Lane& lane, const lanelet::Const
 
 // same as velocity_set.cpp - except for no reference to vector maps
 EControl obstacleDetection(int closest_waypoint, int detection_waypoint, const autoware_msgs::Lane& lane,
-                           const lanelet::ConstLanelets& closest_crosswalks, const VelocitySetInfo vs_info,
+                           const lanelet::ConstLanelets& closest_crosswalks, const VelocitySetInfo& vs_info,
                            const ros::Publisher& detection_range_pub, const ros::Publisher& obstacle_pub,
                            int* obstacle_waypoint)
 {

@@ -50,7 +50,10 @@ VelocitySetInfo::VelocitySetInfo()
     publish_obstacle_pcl_(false),
     set_pose_(false),
     tf_lidar_to_baselink_(),
-    pcl_for_obstacle_pub_()
+    pcl_for_obstacle_pub_(),
+    pcl2_for_obstacle_pub_(),
+    first_pnts_mtx_(),
+    second_pnts_mtx_()
 {
   ros::NodeHandle private_nh_("~");
   ros::NodeHandle nh;
@@ -84,30 +87,59 @@ VelocitySetInfo::VelocitySetInfo()
   CHECK(private_nh_.getParam("wp_decel_x_thresh", wp_decel_x_thresh_)) << "Parameter wp_decel_x_thresh_ cannot be read";
   CHECK(private_nh_.getParam("wp_decel_y_thresh", wp_decel_y_thresh_)) << "Parameter wp_decel_y_thresh_ cannot be read";
 
+  CHECK(private_nh_.getParam("second_lidar_pnts_max_range", second_lidar_pnts_max_range_)) 
+    << "Parameter second_lidar_pnts_max_range cannot be read";
+  CHECK(private_nh_.getParam("second_lidar_pnts_remove_up_to", second_lidar_pnts_remove_up_to_)) 
+    << "Parameter second_lidar_pnts_remove_up_to cannot be read";
+
   // X. Load global paramers.
-  double tf_x, tf_y, tf_z;
-  double tf_roll, tf_pitch, tf_yaw;
-  CHECK(nh.getParam("tf_x", tf_x)) << "Parameter tf_x cannot be read.";
-  CHECK(nh.getParam("tf_y", tf_y)) << "Parameter tf_y cannot be read.";
-  CHECK(nh.getParam("tf_z", tf_z)) << "Parameter tf_z cannot be read.";
-  CHECK(nh.getParam("tf_roll", tf_roll)) << "Parameter tf_roll cannot be read.";
-  CHECK(nh.getParam("tf_pitch", tf_pitch)) << "Parameter tf_pitch cannot be read.";
-  CHECK(nh.getParam("tf_yaw", tf_yaw)) << "Parameter tf_yaw cannot be read.";
+  {
+    double tf_x, tf_y, tf_z;
+    double tf_roll, tf_pitch, tf_yaw;
+    CHECK(nh.getParam("tf_x", tf_x)) << "Parameter tf_x cannot be read.";
+    CHECK(nh.getParam("tf_y", tf_y)) << "Parameter tf_y cannot be read.";
+    CHECK(nh.getParam("tf_z", tf_z)) << "Parameter tf_z cannot be read.";
+    CHECK(nh.getParam("tf_roll", tf_roll)) << "Parameter tf_roll cannot be read.";
+    CHECK(nh.getParam("tf_pitch", tf_pitch)) << "Parameter tf_pitch cannot be read.";
+    CHECK(nh.getParam("tf_yaw", tf_yaw)) << "Parameter tf_yaw cannot be read.";
 
-  Eigen::Quaternionf rot_baselink_to_lidar = 
-    Eigen::AngleAxisf(tf_yaw, Eigen::Vector3f::UnitZ()) * 
-    Eigen::AngleAxisf(tf_pitch, Eigen::Vector3f::UnitY()) * 
-    Eigen::AngleAxisf(tf_roll, Eigen::Vector3f::UnitX());
+    Eigen::Quaternionf rot_baselink_to_lidar = 
+      Eigen::AngleAxisf(tf_yaw, Eigen::Vector3f::UnitZ()) * 
+      Eigen::AngleAxisf(tf_pitch, Eigen::Vector3f::UnitY()) * 
+      Eigen::AngleAxisf(tf_roll, Eigen::Vector3f::UnitX());
 
-  tf_lidar_to_baselink_.setOrigin(tf::Vector3(tf_x, tf_y, tf_z));
-  tf_lidar_to_baselink_.setRotation(
-      tf::Quaternion(rot_baselink_to_lidar.x(), rot_baselink_to_lidar.y(), 
-                     rot_baselink_to_lidar.z(), rot_baselink_to_lidar.w()));
+    tf_lidar_to_baselink_.setOrigin(tf::Vector3(tf_x, tf_y, tf_z));
+    tf_lidar_to_baselink_.setRotation(
+        tf::Quaternion(rot_baselink_to_lidar.x(), rot_baselink_to_lidar.y(), 
+                      rot_baselink_to_lidar.z(), rot_baselink_to_lidar.w()));
+  }
+
+  {
+    double tf_x, tf_y, tf_z;
+    double tf_roll, tf_pitch, tf_yaw;
+    CHECK(nh.getParam("tf_x2", tf_x)) << "Parameter tf_x2 cannot be read.";
+    CHECK(nh.getParam("tf_y2", tf_y)) << "Parameter tf_y2 cannot be read.";
+    CHECK(nh.getParam("tf_z2", tf_z)) << "Parameter tf_z2 cannot be read.";
+    CHECK(nh.getParam("tf_roll2", tf_roll)) << "Parameter tf_roll2 cannot be read.";
+    CHECK(nh.getParam("tf_pitch2", tf_pitch)) << "Parameter tf_pitch2 cannot be read.";
+    CHECK(nh.getParam("tf_yaw2", tf_yaw)) << "Parameter tf_yaw2 cannot be read.";
+
+    Eigen::Quaternionf rot_baselink_to_lidar = 
+      Eigen::AngleAxisf(tf_yaw, Eigen::Vector3f::UnitZ()) * 
+      Eigen::AngleAxisf(tf_pitch, Eigen::Vector3f::UnitY()) * 
+      Eigen::AngleAxisf(tf_roll, Eigen::Vector3f::UnitX());
+
+    tf_2nd_lidar_to_baselink_.setOrigin(tf::Vector3(tf_x, tf_y, tf_z));
+    tf_2nd_lidar_to_baselink_.setRotation(
+        tf::Quaternion(rot_baselink_to_lidar.x(), rot_baselink_to_lidar.y(), 
+                      rot_baselink_to_lidar.z(), rot_baselink_to_lidar.w()));
+  }
 
   velocity_change_limit_ = vel_change_limit_kph / 3.6;  // kph -> mps
 
   if (publish_obstacle_pcl_) {
     pcl_for_obstacle_pub_ = nh.advertise<sensor_msgs::PointCloud2>("pcl_for_obstacle", 1);
+    pcl2_for_obstacle_pub_ = nh.advertise<sensor_msgs::PointCloud2>("pcl2_for_obstacle", 1);
   }
 
   health_checker_ptr_ = std::make_shared<autoware_health_checker::HealthChecker>(nh,private_nh_);
@@ -120,8 +152,13 @@ VelocitySetInfo::~VelocitySetInfo()
 
 void VelocitySetInfo::clearPoints()
 {
+  std::lock_guard<std::mutex> lock1(first_pnts_mtx_);
+  std::lock_guard<std::mutex> lock2(second_pnts_mtx_);
+
   points_in_baselink_.clear();
   points_in_localizer_.clear();
+  first_points_in_baselink_.clear();
+  second_points_in_baselink_.clear();
 }
 
 void VelocitySetInfo::configCallback(const autoware_config_msgs::ConfigVelocitySetConstPtr &config)
@@ -142,16 +179,14 @@ void VelocitySetInfo::configCallback(const autoware_config_msgs::ConfigVelocityS
 void VelocitySetInfo::pointsCallback(const sensor_msgs::PointCloud2ConstPtr &msg)
 {
   health_checker_ptr_->CHECK_RATE("topic_rate_points_no_ground_slow", 8, 5, 1, "topic points_no_ground subscribe rate slow.");
-  pcl::PointCloud<pcl::PointXYZ> sub_points;
+  pcl::PointCloud<pcl::PointXYZ> sub_points, filtered_sub_points;
   pcl::fromROSMsg(*msg, sub_points);
 
-  pcl::PointCloud<pcl::PointXYZ> sub_points_in_baselink;
+  pcl::PointCloud<pcl::PointXYZ> sub_points_in_baselink, filtered_sub_points_in_baselink;
   sensor_msgs::PointCloud2 pcl_msg_in_baselink;
   pcl_ros::transformPointCloud("base_link", tf_lidar_to_baselink_, *msg, pcl_msg_in_baselink);
   pcl::fromROSMsg(pcl_msg_in_baselink, sub_points_in_baselink);
 
-  points_in_baselink_.clear();
-  points_in_localizer_.clear();
   for (size_t idx = 0; idx < sub_points.size(); idx++) {
 
     const pcl::PointXYZ &loc_p = sub_points[idx];
@@ -179,13 +214,27 @@ void VelocitySetInfo::pointsCallback(const sensor_msgs::PointCloud2ConstPtr &msg
     }
 
     if (valid) {
-      points_in_baselink_.push_back(base_p);
-      points_in_localizer_.push_back(loc_p);
+      filtered_sub_points.push_back(loc_p);
+      filtered_sub_points_in_baselink.push_back(base_p);
     } else {
       sub_points[idx].x = std::numeric_limits<float>::quiet_NaN();
       sub_points[idx].y = std::numeric_limits<float>::quiet_NaN();
       sub_points[idx].z = std::numeric_limits<float>::quiet_NaN();
     }
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(first_pnts_mtx_);
+    points_in_localizer_ = filtered_sub_points;
+    first_points_in_baselink_ = filtered_sub_points_in_baselink;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock1(first_pnts_mtx_);
+    std::lock_guard<std::mutex> lock2(second_pnts_mtx_);
+    points_in_baselink_.clear();
+    points_in_baselink_ = first_points_in_baselink_;
+    points_in_baselink_ += second_points_in_baselink_;
   }
 
   // X. Publish for debug.
@@ -194,6 +243,74 @@ void VelocitySetInfo::pointsCallback(const sensor_msgs::PointCloud2ConstPtr &msg
     pcl_msg_obstacle.header = msg->header;
     pcl::toROSMsg(sub_points, pcl_msg_obstacle);
     pcl_for_obstacle_pub_.publish(pcl_msg_obstacle);
+  }
+}
+
+void VelocitySetInfo::secondPointsCallback(const sensor_msgs::PointCloud2ConstPtr &msg) {
+
+  pcl::PointCloud<pcl::PointXYZ> sub_points;
+  pcl::fromROSMsg(*msg, sub_points);
+
+  pcl::PointCloud<pcl::PointXYZ> sub_points_in_baselink, filtered_sub_points_in_baselink;
+  sensor_msgs::PointCloud2 pcl_msg_in_baselink;
+  pcl_ros::transformPointCloud("base_link", tf_2nd_lidar_to_baselink_, *msg, pcl_msg_in_baselink);
+  pcl::fromROSMsg(pcl_msg_in_baselink, sub_points_in_baselink);
+
+  for (size_t idx = 0; idx < sub_points.size(); idx++) {
+
+    const pcl::PointXYZ &loc_p = sub_points[idx];
+    const pcl::PointXYZ &base_p = sub_points_in_baselink[idx];
+    bool valid = true;
+
+    if (loc_p.x == 0 && loc_p.y == 0) {
+      // X. Remove invalid.
+      valid = false;
+    } else if (second_lidar_pnts_max_range_ * second_lidar_pnts_max_range_ 
+               < base_p.x * base_p.x + base_p.y * base_p.y) {
+      // X. Remove far points.
+      valid = false;
+    } else if (-base_to_rear_ < base_p.x && base_p.x < base_to_front_ && 
+        -base_to_right_ < base_p.y && base_p.y < base_to_left_) {
+      // X. Remove inside robot.
+      valid = false;
+    } else if (base_p.x < base_to_front_) {
+      // X. Remove points from back.
+      valid = false;
+    } else if (tangent_value_ < std::abs(base_p.y / base_p.x)) {
+      // X. Apply 60deg line.
+      valid = false;
+    } else if (loc_p.x * loc_p.x + loc_p.y * loc_p.y < second_lidar_pnts_remove_up_to_ * second_lidar_pnts_remove_up_to_) {
+      valid = false;
+    }
+
+    if (valid) {
+      filtered_sub_points_in_baselink.push_back(base_p);
+    } else {
+      sub_points[idx].x = std::numeric_limits<float>::quiet_NaN();
+      sub_points[idx].y = std::numeric_limits<float>::quiet_NaN();
+      sub_points[idx].z = std::numeric_limits<float>::quiet_NaN();
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(second_pnts_mtx_);
+    second_points_in_baselink_ = filtered_sub_points_in_baselink;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock1(first_pnts_mtx_);
+    std::lock_guard<std::mutex> lock2(second_pnts_mtx_);
+    points_in_baselink_.clear();
+    points_in_baselink_ = first_points_in_baselink_;
+    points_in_baselink_ += second_points_in_baselink_;
+  }
+
+  // X. Publish for debug.
+  if (publish_obstacle_pcl_) {
+    sensor_msgs::PointCloud2 pcl_msg_obstacle;
+    pcl_msg_obstacle.header = msg->header;
+    pcl::toROSMsg(sub_points, pcl_msg_obstacle);
+    pcl2_for_obstacle_pub_.publish(pcl_msg_obstacle);
   }
 }
 

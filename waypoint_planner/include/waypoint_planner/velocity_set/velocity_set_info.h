@@ -57,17 +57,23 @@ class VelocitySetInfo
   double wp_decel_x_thresh_;
   double wp_decel_y_thresh_;
 
+  double second_lidar_pnts_max_range_;
+  double second_lidar_pnts_remove_up_to_;
+
   // ROS param
   double remove_points_upto_;
 
   pcl::PointCloud<pcl::PointXYZ> points_in_localizer_, points_in_baselink_;
+  pcl::PointCloud<pcl::PointXYZ> first_points_in_baselink_, second_points_in_baselink_;
+  mutable std::mutex first_pnts_mtx_, second_pnts_mtx_;
   geometry_msgs::PoseStamped localizer_pose_;  // pose of sensor
   geometry_msgs::PoseStamped control_pose_;    // pose of base_link
   bool set_pose_;
 
   tf::Transform tf_lidar_to_baselink_;
+  tf::Transform tf_2nd_lidar_to_baselink_;
 
-  ros::Publisher pcl_for_obstacle_pub_;
+  ros::Publisher pcl_for_obstacle_pub_, pcl2_for_obstacle_pub_;
 
   std::shared_ptr<autoware_health_checker::HealthChecker> health_checker_ptr_;
 
@@ -78,6 +84,7 @@ class VelocitySetInfo
   // ROS Callback
   void configCallback(const autoware_config_msgs::ConfigVelocitySetConstPtr &msg);
   void pointsCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
+  void secondPointsCallback(const sensor_msgs::PointCloud2ConstPtr &msg);
   void controlPoseCallback(const geometry_msgs::PoseStampedConstPtr &msg);
   void localizerPoseCallback(const geometry_msgs::PoseStampedConstPtr &msg);
   void detectionCallback(const std_msgs::Int32 &msg);
@@ -144,13 +151,16 @@ class VelocitySetInfo
     return temporal_waypoints_size_;
   }
 
-  pcl::PointCloud<pcl::PointXYZ> getPointsInBaselink() const 
+  pcl::PointCloud<pcl::PointXYZ> getPointsInBaselink() const
   {
+    std::lock_guard<std::mutex> lock1(first_pnts_mtx_);
+    std::lock_guard<std::mutex> lock2(second_pnts_mtx_);
     return points_in_baselink_;
   }
 
   pcl::PointCloud<pcl::PointXYZ> getPointsInLocalizer() const
   {
+    std::lock_guard<std::mutex> lock1(first_pnts_mtx_);
     return points_in_localizer_;
   }
 
