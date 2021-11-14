@@ -60,6 +60,7 @@ private:
   ros::Subscriber closest_waypoint_sub_;
   ros::Subscriber obstacle_waypoint_sub_;
   ros::Subscriber state_sub_;
+  ros::Subscriber avoidance_request_sub_;
   ros::Rate *rate_;
   ros::Timer timer_;
   tf::TransformListener tf_listener_;
@@ -114,6 +115,7 @@ private:
   void baseWaypointsCallback(const autoware_msgs::Lane& msg);
   void closestWaypointCallback(const std_msgs::Int32& msg);
   void obstacleWaypointCallback(const std_msgs::Int32& msg);
+  void avoidanceRequestCallback(const std_msgs::Header& msg);
 
   // functions
   bool checkInitialized();

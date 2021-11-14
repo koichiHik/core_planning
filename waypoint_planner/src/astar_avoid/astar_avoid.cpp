@@ -24,7 +24,7 @@ AstarAvoid::AstarAvoid()
   private_nh_.param<double>("update_rate", update_rate_, 10.0);
 
   private_nh_.param<bool>("enable_avoidance", enable_avoidance_, false);
-  private_nh_.param<bool>("enable_ontime_avoidance", enable_onetime_avoidance_, false);
+  private_nh_.param<bool>("enable_onetime_avoidance", enable_onetime_avoidance_, false);
   private_nh_.param<double>("avoid_waypoints_velocity", avoid_waypoints_velocity_, 10.0);
   private_nh_.param<double>("avoid_start_velocity", avoid_start_velocity_, 5.0);
   private_nh_.param<double>("replan_interval", replan_interval_, 2.0);
@@ -39,6 +39,7 @@ AstarAvoid::AstarAvoid()
   base_waypoints_sub_ = nh_.subscribe("base_waypoints", 1, &AstarAvoid::baseWaypointsCallback, this);
   closest_waypoint_sub_ = nh_.subscribe("closest_waypoint", 1, &AstarAvoid::closestWaypointCallback, this);
   obstacle_waypoint_sub_ = nh_.subscribe("obstacle_waypoint", 1, &AstarAvoid::obstacleWaypointCallback, this);
+  avoidance_request_sub_ = nh_.subscribe("onetime_avoidance_request", 1, &AstarAvoid::avoidanceRequestCallback, this);
 
   rate_ = new ros::Rate(update_rate_);
 }
@@ -89,6 +90,11 @@ void AstarAvoid::closestWaypointCallback(const std_msgs::Int32& msg)
 void AstarAvoid::obstacleWaypointCallback(const std_msgs::Int32& msg)
 {
   obstacle_waypoint_index_ = msg.data;
+}
+
+void AstarAvoid::avoidanceRequestCallback(const std_msgs::Header& msg)
+{
+  onetime_avoidance_request_ = true;
 }
 
 void AstarAvoid::run()
@@ -153,6 +159,7 @@ void AstarAvoid::run()
       if (!found_obstacle)
       {
         ROS_INFO("STOPPING -> RELAYING, Obstacle disappers");
+        onetime_avoidance_request_ = false;
         state_ = AstarAvoid::STATE::RELAYING;
       }
       else if (replan && avoid_velocity)
@@ -185,6 +192,7 @@ void AstarAvoid::run()
       {
         ROS_INFO("AVOIDING -> RELAYING, Reached goal");
         state_ = AstarAvoid::STATE::RELAYING;
+        onetime_avoidance_request_ = false;
         closest_waypoint_index_ = -1;
       }
       else if (found_obstacle && avoid_velocity)
