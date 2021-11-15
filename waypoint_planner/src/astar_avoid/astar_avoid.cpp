@@ -33,6 +33,8 @@ AstarAvoid::AstarAvoid()
   private_nh_.param<int>("closest_search_size", closest_search_size_, 30);
 
   safety_waypoints_pub_ = nh_.advertise<autoware_msgs::Lane>("safety_waypoints", 1, true);
+  avoidance_request_done_pub_ = nh_.advertise<std_msgs::Header>("avoidance_request_done", 1, true);
+
   costmap_sub_ = nh_.subscribe("costmap", 1, &AstarAvoid::costmapCallback, this);
   current_pose_sub_ = nh_.subscribe("current_pose", 1, &AstarAvoid::currentPoseCallback, this);
   current_velocity_sub_ = nh_.subscribe("current_velocity", 1, &AstarAvoid::currentVelocityCallback, this);
@@ -191,6 +193,9 @@ void AstarAvoid::run()
       if (closest_waypoint_index_ > end_of_avoid_index)
       {
         ROS_INFO("AVOIDING -> RELAYING, Reached goal");
+        std_msgs::Header header;
+        header.stamp = ros::Time::now();
+        avoidance_request_done_pub_.publish(header);
         state_ = AstarAvoid::STATE::RELAYING;
         onetime_avoidance_request_ = false;
         closest_waypoint_index_ = -1;
@@ -262,6 +267,9 @@ bool AstarAvoid::planAvoidWaypoints(int& end_of_avoid_index)
     return false;
   }
 
+  // Clear buffer.
+  avoid_waypoints_map_.clear();
+
   // update goal pose incrementally and execute A* search
   for (int i = search_waypoints_delta_; i < static_cast<int>(search_waypoints_size_); i += search_waypoints_delta_)
   {
@@ -287,8 +295,15 @@ bool AstarAvoid::planAvoidWaypoints(int& end_of_avoid_index)
     // execute astar search
     found_path = astar_.makePlan(current_pose_local_.pose, goal_pose_local_.pose);
 
-    static ros::Publisher pub = nh_.advertise<nav_msgs::Path>("debug", 1, true);
+    // static ros::Publisher pub = nh_.advertise<nav_msgs::Path>("debug", 1, true);
 
+    if (found_path) {
+      avoid_waypoints_map_.insert(
+        std::make_pair(astar_.getPathCost(), 
+        std::make_pair(goal_waypoint_index, astar_.getPath())));
+    }
+
+    /*
     if (found_path)
     {
       pub.publish(astar_.getPath());
@@ -305,11 +320,44 @@ bool AstarAvoid::planAvoidWaypoints(int& end_of_avoid_index)
         found_path = false;
       }
     }
+    */
+
+    if (found_path) {
+      ROS_WARN("Path search for %d is done. Path is FOUND", goal_waypoint_index);
+    } else {
+      ROS_WARN("Path search for %d is done. Path is NOT FOUND", goal_waypoint_index);
+    }
+
     astar_.reset();
   }
 
-  ROS_ERROR("Can't find goal...");
-  return false;
+  bool ok_result = false;
+  if (avoid_waypoints_map_.size()){
+    static ros::Publisher pub = nh_.advertise<nav_msgs::Path>("debug", 1, true);
+    std::map<double, std::pair<int, nav_msgs::Path>>::const_iterator cit;
+    for (cit = avoid_waypoints_map_.cbegin(); cit != avoid_waypoints_map_.cend(); cit++) {
+      int goal_waypoint_index = cit->second.first;      
+      const nav_msgs::Path &path = cit->second.second;
+
+      end_of_avoid_index = goal_waypoint_index;
+      mergeAvoidWaypoints(path, end_of_avoid_index);
+      if (avoid_waypoints_.waypoints.size() > 0) {
+        ROS_INFO("Found GOAL at index = %d", goal_waypoint_index);
+        pub.publish(path);
+        ok_result = true;
+        break;
+      }
+    }
+  }
+
+  avoid_waypoints_map_.clear();
+
+  if (ok_result) {
+    return true;
+  } else {
+    ROS_ERROR("Can't find goal...");
+    return false;
+  }
 }
 
 void AstarAvoid::mergeAvoidWaypoints(const nav_msgs::Path& path, int& end_of_avoid_index)

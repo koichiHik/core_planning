@@ -53,6 +53,7 @@ private:
   // ros
   ros::NodeHandle nh_, private_nh_;
   ros::Publisher safety_waypoints_pub_;
+  ros::Publisher avoidance_request_done_pub_;
   ros::Subscriber costmap_sub_;
   ros::Subscriber current_pose_sub_;
   ros::Subscriber current_velocity_sub_;
@@ -81,6 +82,7 @@ private:
   // classes
   AstarSearch astar_;
   State state_;
+  std::map<double, std::pair<int, nav_msgs::Path>> avoid_waypoints_map_;
 
   // variables
   bool found_avoid_path_;

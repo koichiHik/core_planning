@@ -489,6 +489,7 @@ void AstarSearch::setPath(const SimpleNode& goal)
 
   // Reverse the vector to be start to goal order
   std::reverse(path_.poses.begin(), path_.poses.end());
+  path_cost_ = goal.cost;
 }
 
 // Check if the next state is the goal

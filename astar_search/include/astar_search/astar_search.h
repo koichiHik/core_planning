@@ -47,6 +47,11 @@ public:
     return path_;
   }
 
+  const double getPathCost() const
+  {
+    return path_cost_;
+  }
+
 private:
   void createStateUpdateTable();
   bool search();
@@ -106,6 +111,7 @@ private:
 
   // result path
   nav_msgs::Path path_;
+  double path_cost_;
 };
 
 #endif
