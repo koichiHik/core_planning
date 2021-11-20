@@ -327,7 +327,17 @@ int detectStopObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const pcl::
       if (dt < stop_range)
       {
         geometry_msgs::Point p_in_map = convertPointFromBaseToMap(control_pose.pose, base_points[idx]);
-        if (pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_stop_x_thresh, wp_stop_y_thresh)) {
+        
+        double wp_stop_x;
+        if (i + 1 < lane.waypoints.size()) {
+          geometry_msgs::Point cp = lane.waypoints[i].pose.pose.position;          
+          geometry_msgs::Point np = lane.waypoints[i + 1].pose.pose.position;
+          wp_stop_x = std::sqrt(std::pow(np.x - cp.x, 2.0) + std::pow(np.y - cp.y, 2.0));
+        } else {
+          wp_stop_x = wp_stop_x_thresh;
+        }
+
+        if (pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_stop_x, wp_stop_y_thresh)) {
           stop_point_count++;
           geometry_msgs::Point point_temp;
           point_temp.x = p.x;
@@ -385,8 +395,18 @@ int detectDecelerateObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const
       double dt = tf::tfDistance(point_vector, tf_waypoint);
       if (dt < stop_range + deceleration_range)
       {
+
+        double wp_stop_x;
+        if (i + 1 < lane.waypoints.size()) {
+          geometry_msgs::Point cp = lane.waypoints[i].pose.pose.position;          
+          geometry_msgs::Point np = lane.waypoints[i + 1].pose.pose.position;
+          wp_stop_x = std::sqrt(std::pow(np.x - cp.x, 2.0) + std::pow(np.y - cp.y, 2.0));
+        } else {
+          wp_stop_x = wp_stop_x_thresh;
+        }
+
         geometry_msgs::Point p_in_map = convertPointFromBaseToMap(control_pose.pose, base_points[idx]);
-        if (!pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_stop_x_thresh, wp_stop_y_thresh) &&
+        if (!pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_stop_x, wp_stop_y_thresh) &&
              pointIsInWaypointBox(p_in_map, lane.waypoints[i].pose.pose, wp_decel_x_thresh, wp_decel_y_thresh)) {
           decelerate_point_count++;
           geometry_msgs::Point point_temp;
