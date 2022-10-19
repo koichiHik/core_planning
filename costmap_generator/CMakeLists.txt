@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 2.8.12)
 project(costmap_generator)
 
 find_package(autoware_build_flags REQUIRED)
+find_package(glog REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
   autoware_msgs
   grid_map_ros
@@ -35,6 +36,7 @@ add_library(
 target_link_libraries(
   costmap_generator_lib
   ${catkin_LIBRARIES}
+  glog::glog
 )
 
 add_dependencies(
@@ -53,6 +55,7 @@ add_executable(
 target_link_libraries(
   costmap_generator
   ${catkin_LIBRARIES}
+  glog::glog
 )
 
 add_dependencies(
@@ -71,11 +74,13 @@ add_executable(
 target_link_libraries(
   costmap_generator_lanelet2
   ${catkin_LIBRARIES}
+  glog::glog
 )
 
 add_dependencies(
   costmap_generator_lanelet2
   ${catkin_EXPORTED_TARGETS}
+  glog::glog
 )
 
 install(

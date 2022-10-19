@@ -65,6 +65,7 @@ private:
   bool use_objects_box_;
   bool use_objects_convex_hull_;
   bool use_points_;
+  bool use_second_points_;
   bool use_wayarea_;
 
   bool has_subscribed_wayarea_;
@@ -93,9 +94,13 @@ private:
   ros::Publisher pub_occupancy_grid_;
   ros::Subscriber sub_waypoint_;
   ros::Subscriber sub_points_;
+  ros::Subscriber sub_points_2_;
   ros::Subscriber sub_objects_;
 
   tf::TransformListener tf_listener_;
+
+  tf::Transform tf_lidar_to_baselink_;
+  tf::Transform tf_2nd_lidar_to_baselink_;
 
   std::vector<std::vector<geometry_msgs::Point>> area_points_;
 
@@ -105,6 +110,7 @@ private:
   const std::string OBJECTS_BOX_COSTMAP_LAYER_;
   const std::string OBJECTS_CONVEX_HULL_COSTMAP_LAYER_;
   const std::string SENSOR_POINTS_COSTMAP_LAYER_;
+  const std::string SENSOR_POINTS_2_COSTMAP_LAYER_;
   const std::string VECTORMAP_COSTMAP_LAYER_;
   const std::string COMBINED_COSTMAP_LAYER_;
 
@@ -115,6 +121,8 @@ private:
   /// \brief callback for sensor_msgs::PointCloud2
   /// \param[in] in_sensor_points input sensot_msgs::PointCloud2. Assuming groud-fitered pointcloud by default
   void sensorPointsCallback(const sensor_msgs::PointCloud2::ConstPtr& in_sensor_points);
+
+  void sensorPoints2Callback(const sensor_msgs::PointCloud2::ConstPtr& in_sensor_points);
 
   /// \brief initialize gridmap parameters based on rosparam
   void initGridmap();
@@ -127,7 +135,7 @@ private:
 
   /// \brief calculate cost from pointcloud data
   /// \param[in] in_sensor_points: subscribed pointcloud data
-  grid_map::Matrix generateSensorPointsCostmap(const pcl::PointCloud<pcl::PointXYZ>::Ptr& in_sensor_points);
+  grid_map::Matrix generateSensorPointsCostmap(const pcl::PointCloud<pcl::PointXYZ>::Ptr& in_sensor_points, const bool first);
 
   /// \brief calculate cost from DetectedObjectArray
   /// \param[in] in_objects: subscribed DetectedObjectArray

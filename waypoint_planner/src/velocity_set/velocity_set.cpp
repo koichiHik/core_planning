@@ -312,14 +312,17 @@ int detectStopObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const pcl::
     }
 
     // waypoint seen by localizer
-    geometry_msgs::Point waypoint = calcRelativeCoordinate(lane.waypoints[i].pose.pose.position, localizer_pose.pose);
+    // geometry_msgs::Point waypoint = calcRelativeCoordinate(lane.waypoints[i].pose.pose.position, localizer_pose.pose);
+    geometry_msgs::Point waypoint = calcRelativeCoordinate(lane.waypoints[i].pose.pose.position, control_pose.pose);
     tf::Vector3 tf_waypoint = point2vector(waypoint);
     tf_waypoint.setZ(0);
 
     int stop_point_count = 0;
-    for (size_t idx = 0; idx < points.size(); idx++) 
+    //for (size_t idx = 0; idx < points.size(); idx++)
+    for (size_t idx = 0; idx < base_points.size(); idx++) 
     {
-      const pcl::PointXYZ& p = points[idx];
+      //const pcl::PointXYZ& p = points[idx];
+      const pcl::PointXYZ& p = base_points[idx];
       tf::Vector3 point_vector(p.x, p.y, 0);
 
       // 2D distance between waypoint and points (obstacle)
@@ -343,7 +346,8 @@ int detectStopObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const pcl::
           point_temp.x = p.x;
           point_temp.y = p.y;
           point_temp.z = p.z;
-          obstacle_points->setStopPoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+          //obstacle_points->setStopPoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+          obstacle_points->setStopPoint(calcAbsoluteCoordinate(point_temp, control_pose.pose));
         }
       }
     }
@@ -381,14 +385,17 @@ int detectDecelerateObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const
       break;
 
     // waypoint seen by localizer
-    geometry_msgs::Point waypoint = calcRelativeCoordinate(lane.waypoints[i].pose.pose.position, localizer_pose.pose);
+    // geometry_msgs::Point waypoint = calcRelativeCoordinate(lane.waypoints[i].pose.pose.position, localizer_pose.pose);
+    geometry_msgs::Point waypoint = calcRelativeCoordinate(lane.waypoints[i].pose.pose.position, control_pose.pose);
     tf::Vector3 tf_waypoint = point2vector(waypoint);
     tf_waypoint.setZ(0);
 
     int decelerate_point_count = 0;
-    for (size_t idx = 0; idx < points.size(); idx++) 
+    //for (size_t idx = 0; idx < points.size(); idx++) 
+    for (size_t idx = 0; idx < base_points.size(); idx++) 
     {
-      const pcl::PointXYZ &p = points[idx];
+      // const pcl::PointXYZ &p = points[idx];
+      const pcl::PointXYZ &p = base_points[idx];
       tf::Vector3 point_vector(p.x, p.y, 0);
 
       // 2D distance between waypoint and points (obstacle)
@@ -413,7 +420,8 @@ int detectDecelerateObstacle(const pcl::PointCloud<pcl::PointXYZ>& points, const
           point_temp.x = p.x;
           point_temp.y = p.y;
           point_temp.z = p.z;
-          obstacle_points->setDeceleratePoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+          // obstacle_points->setDeceleratePoint(calcAbsoluteCoordinate(point_temp, localizer_pose.pose));
+          obstacle_points->setDeceleratePoint(calcAbsoluteCoordinate(point_temp, control_pose.pose));
         }
       }
     }

@@ -32,6 +32,12 @@
 #include "object_map/object_map_utils.hpp"
 #include "costmap_generator/costmap_generator.h"
 
+// ROS
+#include <pcl_ros/transforms.h>
+
+// Google
+#include <glog/logging.h>
+
 // Constructor
 CostmapGenerator::CostmapGenerator()
   : private_nh_("~")
@@ -39,6 +45,7 @@ CostmapGenerator::CostmapGenerator()
   , OBJECTS_BOX_COSTMAP_LAYER_("objects_box")
   , OBJECTS_CONVEX_HULL_COSTMAP_LAYER_("objects_convex_hull")
   , SENSOR_POINTS_COSTMAP_LAYER_("sensor_points")
+  , SENSOR_POINTS_2_COSTMAP_LAYER_("sensor_points_2")
   , VECTORMAP_COSTMAP_LAYER_("vectormap")
   , COMBINED_COSTMAP_LAYER_("costmap")
 {
@@ -64,9 +71,53 @@ void CostmapGenerator::init()
   private_nh_.param<bool>("use_objects_box", use_objects_box_, false);
   private_nh_.param<bool>("use_objects_convex_hull", use_objects_convex_hull_, true);
   private_nh_.param<bool>("use_points", use_points_, true);
+  private_nh_.param<bool>("use_second_points", use_second_points_, true);
   private_nh_.param<bool>("use_wayarea", use_wayarea_, true);
   private_nh_.param<double>("expand_polygon_size", expand_polygon_size_, 1.0);
   private_nh_.param<int>("size_of_expansion_kernel", size_of_expansion_kernel_, 9);
+
+  // X. Load global paramers.
+  {
+    double tf_x, tf_y, tf_z;
+    double tf_roll, tf_pitch, tf_yaw;
+    CHECK(nh_.getParam("tf_x", tf_x)) << "Parameter tf_x cannot be read.";
+    CHECK(nh_.getParam("tf_y", tf_y)) << "Parameter tf_y cannot be read.";
+    CHECK(nh_.getParam("tf_z", tf_z)) << "Parameter tf_z cannot be read.";
+    CHECK(nh_.getParam("tf_roll", tf_roll)) << "Parameter tf_roll cannot be read.";
+    CHECK(nh_.getParam("tf_pitch", tf_pitch)) << "Parameter tf_pitch cannot be read.";
+    CHECK(nh_.getParam("tf_yaw", tf_yaw)) << "Parameter tf_yaw cannot be read.";
+
+    Eigen::Quaternionf rot_baselink_to_lidar = 
+      Eigen::AngleAxisf(tf_yaw, Eigen::Vector3f::UnitZ()) * 
+      Eigen::AngleAxisf(tf_pitch, Eigen::Vector3f::UnitY()) * 
+      Eigen::AngleAxisf(tf_roll, Eigen::Vector3f::UnitX());
+
+    tf_lidar_to_baselink_.setOrigin(tf::Vector3(tf_x, tf_y, tf_z));
+    tf_lidar_to_baselink_.setRotation(
+        tf::Quaternion(rot_baselink_to_lidar.x(), rot_baselink_to_lidar.y(), 
+                      rot_baselink_to_lidar.z(), rot_baselink_to_lidar.w()));
+  }
+
+  {
+    double tf_x, tf_y, tf_z;
+    double tf_roll, tf_pitch, tf_yaw;
+    CHECK(nh_.getParam("tf_x2", tf_x)) << "Parameter tf_x2 cannot be read.";
+    CHECK(nh_.getParam("tf_y2", tf_y)) << "Parameter tf_y2 cannot be read.";
+    CHECK(nh_.getParam("tf_z2", tf_z)) << "Parameter tf_z2 cannot be read.";
+    CHECK(nh_.getParam("tf_roll2", tf_roll)) << "Parameter tf_roll2 cannot be read.";
+    CHECK(nh_.getParam("tf_pitch2", tf_pitch)) << "Parameter tf_pitch2 cannot be read.";
+    CHECK(nh_.getParam("tf_yaw2", tf_yaw)) << "Parameter tf_yaw2 cannot be read.";
+
+    Eigen::Quaternionf rot_baselink_to_lidar = 
+      Eigen::AngleAxisf(tf_yaw, Eigen::Vector3f::UnitZ()) * 
+      Eigen::AngleAxisf(tf_pitch, Eigen::Vector3f::UnitY()) * 
+      Eigen::AngleAxisf(tf_roll, Eigen::Vector3f::UnitX());
+
+    tf_2nd_lidar_to_baselink_.setOrigin(tf::Vector3(tf_x, tf_y, tf_z));
+    tf_2nd_lidar_to_baselink_.setRotation(
+        tf::Quaternion(rot_baselink_to_lidar.x(), rot_baselink_to_lidar.y(), 
+                      rot_baselink_to_lidar.z(), rot_baselink_to_lidar.w()));
+  }
 
   initGridmap();
 }
@@ -84,6 +135,10 @@ void CostmapGenerator::run()
   if (use_points_)
   {
     sub_points_ = nh_.subscribe("/points_no_ground", 1, &CostmapGenerator::sensorPointsCallback, this);
+  }
+
+  if (use_second_points_) {
+    sub_points_2_ = nh_.subscribe("/points_no_ground_2", 1, &CostmapGenerator::sensorPoints2Callback, this);
   }
 }
 
@@ -108,13 +163,35 @@ void CostmapGenerator::objectsCallback(const autoware_msgs::DetectedObjectArray:
 
 void CostmapGenerator::sensorPointsCallback(const sensor_msgs::PointCloud2::ConstPtr& in_sensor_points_msg)
 {
+  sensor_msgs::PointCloud2 pcl_msg_in_lidar_frame;
+  pcl_ros::transformPointCloud(lidar_frame_, tf_lidar_to_baselink_, *in_sensor_points_msg, pcl_msg_in_lidar_frame);
+
   pcl::PointCloud<pcl::PointXYZ>::Ptr in_sensor_points(new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::fromROSMsg(*in_sensor_points_msg, *in_sensor_points);
-  costmap_[SENSOR_POINTS_COSTMAP_LAYER_] = generateSensorPointsCostmap(in_sensor_points);
+  pcl::fromROSMsg(pcl_msg_in_lidar_frame, *in_sensor_points);
+
+  costmap_[SENSOR_POINTS_COSTMAP_LAYER_] = generateSensorPointsCostmap(in_sensor_points, true);
   costmap_[VECTORMAP_COSTMAP_LAYER_] = generateVectormapCostmap();
   costmap_[COMBINED_COSTMAP_LAYER_] = generateCombinedCostmap();
 
   std_msgs::Header in_header = in_sensor_points_msg->header;
+  in_header.frame_id = lidar_frame_;
+  publishRosMsg(costmap_, in_header);
+}
+
+void CostmapGenerator::sensorPoints2Callback(const sensor_msgs::PointCloud2::ConstPtr& in_sensor_points_msg)
+{
+  sensor_msgs::PointCloud2 pcl_msg_in_lidar_frame;
+  pcl_ros::transformPointCloud(lidar_frame_, tf_2nd_lidar_to_baselink_, *in_sensor_points_msg, pcl_msg_in_lidar_frame);
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr in_sensor_points(new pcl::PointCloud<pcl::PointXYZ>);
+  pcl::fromROSMsg(pcl_msg_in_lidar_frame, *in_sensor_points);
+
+  costmap_[SENSOR_POINTS_2_COSTMAP_LAYER_] = generateSensorPointsCostmap(in_sensor_points, false);
+  costmap_[VECTORMAP_COSTMAP_LAYER_] = generateVectormapCostmap();
+  costmap_[COMBINED_COSTMAP_LAYER_] = generateCombinedCostmap();
+
+  std_msgs::Header in_header = in_sensor_points_msg->header;
+  in_header.frame_id = lidar_frame_;
   publishRosMsg(costmap_, in_header);
 }
 
@@ -125,6 +202,7 @@ void CostmapGenerator::initGridmap()
                        grid_map::Position(grid_position_x_, grid_position_y_));
 
   costmap_.add(SENSOR_POINTS_COSTMAP_LAYER_, grid_min_value_);
+  costmap_.add(SENSOR_POINTS_2_COSTMAP_LAYER_, grid_min_value_);
   costmap_.add(OBJECTS_BOX_COSTMAP_LAYER_, grid_min_value_);
   costmap_.add(OBJECTS_CONVEX_HULL_COSTMAP_LAYER_, grid_min_value_);
   costmap_.add(VECTORMAP_COSTMAP_LAYER_, grid_min_value_);
@@ -132,11 +210,12 @@ void CostmapGenerator::initGridmap()
 }
 
 grid_map::Matrix
-CostmapGenerator::generateSensorPointsCostmap(const pcl::PointCloud<pcl::PointXYZ>::Ptr& in_sensor_points)
+CostmapGenerator::generateSensorPointsCostmap(const pcl::PointCloud<pcl::PointXYZ>::Ptr& in_sensor_points, const bool first)
 {
+  const std::string layer_name = first ? SENSOR_POINTS_COSTMAP_LAYER_ : SENSOR_POINTS_2_COSTMAP_LAYER_;
   grid_map::Matrix sensor_points_costmap = points2costmap_.makeCostmapFromSensorPoints(
       maximum_lidar_height_thres_, minimum_lidar_height_thres_, grid_min_value_, grid_max_value_, costmap_,
-      SENSOR_POINTS_COSTMAP_LAYER_, in_sensor_points);
+      layer_name, in_sensor_points);
   return sensor_points_costmap;
 }
 
@@ -177,6 +256,8 @@ grid_map::Matrix CostmapGenerator::generateCombinedCostmap()
   combined_costmap[COMBINED_COSTMAP_LAYER_].setConstant(grid_min_value_);
   combined_costmap[COMBINED_COSTMAP_LAYER_] =
       combined_costmap[COMBINED_COSTMAP_LAYER_].cwiseMax(combined_costmap[SENSOR_POINTS_COSTMAP_LAYER_]);
+  combined_costmap[COMBINED_COSTMAP_LAYER_] = 
+      combined_costmap[COMBINED_COSTMAP_LAYER_].cwiseMax(combined_costmap[SENSOR_POINTS_2_COSTMAP_LAYER_]);
   combined_costmap[COMBINED_COSTMAP_LAYER_] =
       combined_costmap[COMBINED_COSTMAP_LAYER_].cwiseMax(combined_costmap[VECTORMAP_COSTMAP_LAYER_]);
   combined_costmap[COMBINED_COSTMAP_LAYER_] =
