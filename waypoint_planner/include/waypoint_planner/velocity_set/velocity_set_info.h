@@ -111,22 +111,22 @@ class VelocitySetInfo
     return points_threshold_;
   }
 
-  int getDetectionHeightTop() const
+  double getDetectionHeightTop() const
   {
     return detection_height_top_;
   }
 
-  int getDetectionHeightBottom() const
+  double getDetectionHeightBottom() const
   {
     return detection_height_bottom_;
   }
 
-  int getStopDistanceObstacle() const
+  double getStopDistanceObstacle() const
   {
     return stop_distance_obstacle_;
   }
 
-  int getStopDistanceStopline() const
+  double getStopDistanceStopline() const
   {
     return stop_distance_stopline_;
   }

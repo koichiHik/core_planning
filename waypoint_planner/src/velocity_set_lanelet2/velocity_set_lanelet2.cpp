@@ -588,7 +588,7 @@ EControl obstacleDetection(int closest_waypoint, int detection_waypoint, const a
 void changeWaypoints(const VelocitySetInfo& vs_info, const EControl& detection_result, int closest_waypoint,
                      int obstacle_waypoint, const ros::Publisher& final_waypoints_pub, VelocitySetPath* vs_path)
 {
-  int stop_distance =
+  double stop_distance =
       (detection_result == EControl::STOPLINE) ? vs_info.getStopDistanceStopline() : vs_info.getStopDistanceObstacle();
   double deceleration =
       (detection_result == EControl::STOPLINE) ? vs_info.getDecelerationStopline() : vs_info.getDecelerationObstacle();
