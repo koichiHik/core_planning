@@ -375,9 +375,15 @@ bool AstarSearch::search()
       double move_cost = state.step;
       double move_distance = current_an->move_distance + state.step;
 
+      // Increase curve cost
+      if (state.curve) {
+        move_cost *= curve_weight_;
+      }
+
       // Increase reverse cost
-      if (state.back != current_an->back)
+      if (state.back != current_an->back) {
         move_cost *= reverse_weight_;
+      }
 
       // Calculate index of the next state
       SimpleNode next_sn;
