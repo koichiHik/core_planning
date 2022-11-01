@@ -97,6 +97,7 @@ add_dependencies(waypoint_creator ${catkin_EXPORTED_TARGETS})
 install(
   TARGETS
     waypoint_loader
+    waypoint_loader_upon_request
     waypoint_replanner
     waypoint_saver
     waypoint_clicker
