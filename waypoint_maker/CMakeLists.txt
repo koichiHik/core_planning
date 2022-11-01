@@ -21,6 +21,7 @@ find_package(
 )
 
 find_package(Boost REQUIRED)
+find_package(glog REQUIRED)
 
 catkin_package()
 
@@ -38,6 +39,14 @@ add_executable(
 )
 target_link_libraries(waypoint_loader ${catkin_LIBRARIES})
 add_dependencies(waypoint_loader ${catkin_EXPORTED_TARGETS})
+
+add_executable(
+  waypoint_loader_upon_request
+  nodes/waypoint_loader/waypoint_loader_upon_request_core.cpp
+  nodes/waypoint_loader/waypoint_loader_upon_request_node.cpp
+)
+target_link_libraries(waypoint_loader_upon_request glog::glog ${catkin_LIBRARIES})
+add_dependencies(waypoint_loader_upon_request ${catkin_EXPORTED_TARGETS})
 
 add_executable(
   waypoint_replanner
