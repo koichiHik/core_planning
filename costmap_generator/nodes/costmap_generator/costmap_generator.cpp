@@ -67,7 +67,8 @@ void CostmapGenerator::init()
   private_nh_.param<double>("grid_position_x", grid_position_x_, 20);
   private_nh_.param<double>("grid_position_y", grid_position_y_, 0);
   private_nh_.param<double>("maximum_lidar_height_thres", maximum_lidar_height_thres_, 0.3);
-  private_nh_.param<double>("minimum_lidar_height_thres", minimum_lidar_height_thres_, -2.2);
+  private_nh_.param<double>("minimum_lidar_height_thres_1", minimum_lidar_height_thres_1_, -2.2);
+  private_nh_.param<double>("minimum_lidar_height_thres_2", minimum_lidar_height_thres_2_, -2.2);
   private_nh_.param<bool>("use_objects_box", use_objects_box_, false);
   private_nh_.param<bool>("use_objects_convex_hull", use_objects_convex_hull_, true);
   private_nh_.param<bool>("use_points", use_points_, true);
@@ -212,9 +213,10 @@ void CostmapGenerator::initGridmap()
 grid_map::Matrix
 CostmapGenerator::generateSensorPointsCostmap(const pcl::PointCloud<pcl::PointXYZ>::Ptr& in_sensor_points, const bool first)
 {
+  const double minimum_thresh = first ? minimum_lidar_height_thres_1_ : minimum_lidar_height_thres_2_;
   const std::string layer_name = first ? SENSOR_POINTS_COSTMAP_LAYER_ : SENSOR_POINTS_2_COSTMAP_LAYER_;
   grid_map::Matrix sensor_points_costmap = points2costmap_.makeCostmapFromSensorPoints(
-      maximum_lidar_height_thres_, minimum_lidar_height_thres_, grid_min_value_, grid_max_value_, costmap_,
+      maximum_lidar_height_thres_, minimum_thresh, grid_min_value_, grid_max_value_, costmap_,
       layer_name, in_sensor_points);
   return sensor_points_costmap;
 }

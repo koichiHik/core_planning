@@ -81,7 +81,8 @@ private:
   double grid_position_y_;
 
   double maximum_lidar_height_thres_;
-  double minimum_lidar_height_thres_;
+  double minimum_lidar_height_thres_1_;
+  double minimum_lidar_height_thres_2_;
 
   double expand_polygon_size_;
   int size_of_expansion_kernel_;
